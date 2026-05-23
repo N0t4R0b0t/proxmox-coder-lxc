@@ -34,7 +34,7 @@ The LXC container is created as **privileged** with `nesting=1` and `keyctl=1` s
 |------------|---------------|
 | OS         | Debian 12     |
 | Privileged | yes           |
-| Cores      | 2             |
+| Cores      | 4             |
 | RAM        | 8192 MB       |
 | Disk       | 64 GB         |
 | Network    | DHCP, vmbr0   |
