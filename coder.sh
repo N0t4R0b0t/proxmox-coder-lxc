@@ -171,6 +171,21 @@ EOF
     msg_ok "Configured PostgreSQL"
   fi
 
+  # ── Dockge ────────────────────────────────────────────────────────────────
+  if [[ ! -f /opt/dockge/compose.yaml ]]; then
+    msg_info "Installing Dockge"
+    mkdir -p /opt/stacks /opt/dockge
+    curl -fsSL https://raw.githubusercontent.com/louislam/dockge/master/compose.yaml \
+      -o /opt/dockge/compose.yaml
+    docker compose -f /opt/dockge/compose.yaml up -d &>/dev/null
+    msg_ok "Installed Dockge"
+  else
+    msg_info "Updating Dockge"
+    docker compose -f /opt/dockge/compose.yaml pull &>/dev/null
+    docker compose -f /opt/dockge/compose.yaml up -d &>/dev/null
+    msg_ok "Updated Dockge"
+  fi
+
   # ── Systemd service ───────────────────────────────────────────────────────
   msg_info "Enabling Coder service"
   cat <<EOF >/etc/systemd/system/coder.service
@@ -202,11 +217,12 @@ EOF
   echo -e "
 ${GN}${APP} is ready on $(hostname).${CL}
 
-  Web UI  : ${BL}http://${IP}:${CODER_PORT}${CL}
+  Coder   : ${BL}http://${IP}:${CODER_PORT}${CL}
+  Dockge  : ${BL}http://${IP}:5001${CL}
   Config  : /etc/coder.d/coder.env
   Logs    : journalctl -u coder -f
 
-  ${YW}Open the URL above to create your admin account.${CL}
+  ${YW}Open the Coder URL above to create your admin account.${CL}
 "
 }
 

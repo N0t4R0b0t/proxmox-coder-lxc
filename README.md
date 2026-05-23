@@ -22,6 +22,7 @@ Run this on your **Proxmox host shell** or inside an existing Debian/Ubuntu LXC 
 |----------------|-----------------------------------------------------------------|
 | Coder          | Latest release, auto-detected architecture                      |
 | Docker Engine  | For workspace containers and project service dependencies       |
+| Dockge         | Web UI for managing Docker Compose stacks (port 5001)           |
 | PostgreSQL     | Required by Coder, configured automatically                     |
 | systemd        | `coder.service` enabled and started on boot                     |
 
@@ -42,7 +43,12 @@ Defaults can be changed by editing the `CT_*` variables at the top of `coder.sh`
 
 ## After install
 
-Open `http://<container-ip>:3000` in your browser to create your admin account and configure your first workspace template.
+| Service | URL                          |
+|---------|------------------------------|
+| Coder   | `http://<container-ip>:3000` |
+| Dockge  | `http://<container-ip>:5001` |
+
+Open the Coder URL to create your admin account and configure your first workspace template. Use Dockge to manage Docker Compose stacks for shared services (databases, caches, etc.).
 
 Configuration lives at `/etc/coder.d/coder.env` inside the container. After editing, restart with:
 
