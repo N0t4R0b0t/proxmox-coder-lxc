@@ -341,7 +341,7 @@ function select_storage() {
     --radiolist "Select a storage pool:\n(Spacebar to select, Enter to confirm)" \
     16 "$WIDTH" 6 "${MENU[@]}" 3>&1 1>&2 2>&3) || die "Storage selection cancelled."
 
-  SELECTED="${SELECTED// /}"   # strip trailing spaces whiptail may add
+  SELECTED=$(sed 's/[[:space:]]*$//' <<<"$SELECTED")
   STORAGE_RESULT="${STORAGE_MAP[$SELECTED]}"
   [[ -z "$STORAGE_RESULT" ]] && die "Invalid storage selection."
 }
