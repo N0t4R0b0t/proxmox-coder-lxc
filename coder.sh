@@ -240,17 +240,55 @@ function next_ctid() {
       <(find /etc/pve/lxc -name '*.conf' 2>/dev/null)
 }
 
-function pick_storage() {
-  # Prefer local-lvm; fall back to first available storage with content rootdir
-  local candidates
-  candidates=$(pvesm status --content rootdir 2>/dev/null | awk 'NR>1 && $3=="active" {print $1}')
-  echo "$candidates" | grep -q "local-lvm" && { echo "local-lvm"; return; }
-  echo "$candidates" | head -1
+function select_storage() {
+  # select_storage <content-type> <title>
+  # Sets STORAGE_RESULT to the chosen storage tag.
+  local CONTENT="$1"
+  local TITLE="$2"
+  local -a MENU=()
+  local -A STORAGE_MAP=()
+  local COL_WIDTH=0
+
+  while read -r TAG TYPE _ TOTAL USED FREE _; do
+    [[ -n "$TAG" && -n "$TYPE" ]] || continue
+    local DISPLAY="${TAG} (${TYPE})"
+    local FREE_FMT USED_FMT
+    FREE_FMT=$(numfmt --to=iec --from-unit=1024 --format "%.1f" <<<"$FREE" 2>/dev/null || echo "${FREE}K")
+    USED_FMT=$(numfmt --to=iec --from-unit=1024 --format "%.1f" <<<"$USED" 2>/dev/null || echo "${USED}K")
+    local INFO="Free: ${FREE_FMT}B  Used: ${USED_FMT}B"
+    STORAGE_MAP["$DISPLAY"]="$TAG"
+    MENU+=("$DISPLAY" "$INFO" "OFF")
+    (( ${#DISPLAY} > COL_WIDTH )) && COL_WIDTH=${#DISPLAY}
+  done < <(pvesm status -content "$CONTENT" 2>/dev/null | awk 'NR>1 && $3=="active"')
+
+  if [[ ${#MENU[@]} -eq 0 ]]; then
+    die "No active storage found for content type '${CONTENT}'."
+  fi
+
+  # Auto-pick when there is only one option
+  if [[ $(( ${#MENU[@]} / 3 )) -eq 1 ]]; then
+    STORAGE_RESULT="${STORAGE_MAP[${MENU[0]}]}"
+    return 0
+  fi
+
+  local WIDTH=$(( COL_WIDTH + 42 ))
+  local SELECTED
+  SELECTED=$(whiptail --backtitle "Proxmox VE — Coder LXC Installer" \
+    --title "$TITLE" \
+    --radiolist "Select a storage pool:\n(Spacebar to select, Enter to confirm)" \
+    16 "$WIDTH" 6 "${MENU[@]}" 3>&1 1>&2 2>&3) || die "Storage selection cancelled."
+
+  SELECTED="${SELECTED// /}"   # strip trailing spaces whiptail may add
+  STORAGE_RESULT="${STORAGE_MAP[$SELECTED]}"
+  [[ -z "$STORAGE_RESULT" ]] && die "Invalid storage selection."
 }
 
 function ensure_template() {
-  # Downloads latest Debian 12 standard template to local storage if not present
-  local STORAGE="local"
+  # Lets the user pick a template storage, then downloads the latest Debian 12 template if needed.
+  local TMPL_STORAGE
+  select_storage "vztmpl" "Template Storage"
+  TMPL_STORAGE="$STORAGE_RESULT"
+
   local TEMPLATE
   TEMPLATE=$(pveam available --section system 2>/dev/null \
     | awk '{print $2}' \
@@ -258,12 +296,12 @@ function ensure_template() {
     | sort -V | tail -1)
   [[ -z "$TEMPLATE" ]] && die "Could not find a ${DEBIAN_TEMPLATE_FILTER} template in pveam."
 
-  if ! pveam list "$STORAGE" 2>/dev/null | grep -q "$TEMPLATE"; then
-    msg_info "Downloading template ${TEMPLATE}"
-    pveam download "$STORAGE" "$TEMPLATE" &>/dev/null || die "Template download failed."
+  if ! pveam list "$TMPL_STORAGE" 2>/dev/null | grep -q "$TEMPLATE"; then
+    msg_info "Downloading template ${TEMPLATE} to ${TMPL_STORAGE}"
+    pveam download "$TMPL_STORAGE" "$TEMPLATE" &>/dev/null || die "Template download failed."
     msg_ok "Downloaded ${TEMPLATE}"
   fi
-  echo "${STORAGE}:vztmpl/${TEMPLATE}"
+  echo "${TMPL_STORAGE}:vztmpl/${TEMPLATE}"
 }
 
 function create_lxc() {
@@ -271,8 +309,8 @@ function create_lxc() {
   local HOSTNAME="$2"
 
   local STORAGE TMPL
-  STORAGE=$(pick_storage)
-  [[ -z "$STORAGE" ]] && die "No suitable storage found for rootfs."
+  select_storage "rootdir" "Container Storage"
+  STORAGE="$STORAGE_RESULT"
   TMPL=$(ensure_template)
 
   msg_info "Creating LXC container ${CTID} (${HOSTNAME})"
