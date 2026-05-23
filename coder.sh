@@ -94,8 +94,26 @@ function install_coder() {
   # ── Dependencies ──────────────────────────────────────────────────────────
   msg_info "Installing dependencies"
   apt-get update &>/dev/null
-  apt-get install -y curl postgresql &>/dev/null
+  apt-get install -y curl ca-certificates postgresql &>/dev/null
   msg_ok "Installed dependencies"
+
+  # ── Docker ────────────────────────────────────────────────────────────────
+  if ! command -v docker &>/dev/null; then
+    msg_info "Installing Docker"
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/debian/gpg \
+      -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      >/etc/apt/sources.list.d/docker.list
+    apt-get update &>/dev/null
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin &>/dev/null
+    systemctl enable -q --now docker
+    msg_ok "Installed Docker"
+  else
+    msg_ok "Docker already installed"
+  fi
 
   # ── Architecture ──────────────────────────────────────────────────────────
   local ARCH ARCH_CODER
@@ -137,6 +155,7 @@ function install_coder() {
 
     # ── System user ────────────────────────────────────────────────────────
     id -u coder &>/dev/null || useradd --system --create-home --shell /bin/bash coder
+    usermod -aG docker coder
 
     # ── Config file ────────────────────────────────────────────────────────
     mkdir -p /etc/coder.d
@@ -247,8 +266,8 @@ function create_lxc() {
     --memory "$CT_RAM" \
     --rootfs "${STORAGE}:${CT_DISK}" \
     --net0 "name=eth0,bridge=${CT_BRIDGE},ip=dhcp" \
-    --features "nesting=1" \
-    --unprivileged 1 \
+    --features "nesting=1,keyctl=1" \
+    --unprivileged 0 \
     --onboot 1 \
     --start 1 \
     &>/dev/null || die "pct create failed."

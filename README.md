@@ -18,21 +18,25 @@ Run this on your **Proxmox host shell** or inside an existing Debian/Ubuntu LXC 
 
 ## What gets installed
 
-| Component   | Details                                      |
-|-------------|----------------------------------------------|
-| Coder       | Latest release, auto-detected architecture   |
-| PostgreSQL  | Required by Coder, configured automatically  |
-| systemd     | `coder.service` enabled and started on boot  |
+| Component      | Details                                                         |
+|----------------|-----------------------------------------------------------------|
+| Coder          | Latest release, auto-detected architecture                      |
+| Docker Engine  | For workspace containers and project service dependencies       |
+| PostgreSQL     | Required by Coder, configured automatically                     |
+| systemd        | `coder.service` enabled and started on boot                     |
+
+The LXC container is created as **privileged** with `nesting=1` and `keyctl=1` so Docker runs correctly inside it. Each Coder workspace is a Docker container on the same host, with full access to `docker compose` for service dependencies (databases, caches, etc.).
 
 ## Container defaults
 
-| Setting  | Default     |
-|----------|-------------|
-| OS       | Debian 12   |
-| Cores    | 2           |
-| RAM      | 2048 MB     |
-| Disk     | 8 GB        |
-| Network  | DHCP, vmbr0 |
+| Setting    | Default       |
+|------------|---------------|
+| OS         | Debian 12     |
+| Privileged | yes           |
+| Cores      | 2             |
+| RAM        | 2048 MB       |
+| Disk       | 8 GB          |
+| Network    | DHCP, vmbr0   |
 
 Defaults can be changed by editing the `CT_*` variables at the top of `coder.sh`.
 
