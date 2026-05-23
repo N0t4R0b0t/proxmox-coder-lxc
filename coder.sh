@@ -82,6 +82,66 @@ function choose() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+# MOTD — login welcome screen inside the LXC container
+# ────────────────────────────────────────────────────────────────────────────
+function setup_motd() {
+  local PROFILE="/etc/profile.d/00_lxc-details.sh"
+
+  # 256-colour terminal for root
+  grep -qxF "export TERM='xterm-256color'" /root/.bashrc \
+    || echo "export TERM='xterm-256color'" >>/root/.bashrc
+
+  # Silence the default dynamic MOTD scripts
+  [[ -d /etc/update-motd.d ]] && chmod -x /etc/update-motd.d/* 2>/dev/null || true
+
+  # Auto-login on tty1
+  local GETTY_OVERRIDE="/etc/systemd/system/container-getty@1.service.d/override.conf"
+  mkdir -p "$(dirname "$GETTY_OVERRIDE")"
+  cat >"$GETTY_OVERRIDE" <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear --keep-baud tty%I 115200,38400,9600 $TERM
+EOF
+  systemctl daemon-reload
+  systemctl restart "container-getty@1" 2>/dev/null || true
+
+  # /usr/bin/update shortcut
+  cat >/usr/bin/update <<'EOF'
+#!/usr/bin/env bash
+bash <(curl -fsSL https://raw.githubusercontent.com/N0t4R0b0t/proxmox-coder-lxc/main/coder.sh) --inside-lxc
+EOF
+  chmod +x /usr/bin/update
+
+  # Dynamic profile script — evaluated on every login
+  cat >"$PROFILE" <<'PROFILE'
+[ -t 1 ] || return 0
+
+_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+_host=$(hostname)
+_os="Unknown OS"
+[ -r /etc/os-release ] && . /etc/os-release && _os="${PRETTY_NAME:-${NAME:-Unknown OS}}"
+
+echo ""
+echo -e "\033[1;92mCoder LXC Container\033[m"
+echo -e "    🌐   Provided by: N0t4R0b0t | GitHub: \033[36mhttps://github.com/N0t4R0b0t/proxmox-coder-lxc\033[m"
+echo ""
+echo -e "    🖥️   OS: \033[1;92m${_os}\033[m"
+echo -e "    🏠   Hostname: \033[1;92m${_host}\033[m"
+echo -e "    💡   IP Address: \033[1;92m${_ip}\033[m"
+echo ""
+echo -e "    🚀   Coder UI:  \033[36mhttp://${_ip}:3000\033[m"
+echo -e "    📦   Dockge UI: \033[36mhttp://${_ip}:5001\033[m"
+echo ""
+echo -e "    💾   Config:    /etc/coder.d/coder.env"
+echo -e "    📋   Logs:      journalctl -u coder -f"
+echo -e "    🔄   Update:    update"
+echo ""
+PROFILE
+
+  chmod +x "$PROFILE"
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # INSTALL — runs inside the LXC container
 # ────────────────────────────────────────────────────────────────────────────
 function install_coder() {
@@ -170,6 +230,9 @@ EOF
     chmod 600 /etc/coder.d/coder.env
     msg_ok "Configured PostgreSQL"
   fi
+
+  # ── MOTD / shell welcome ──────────────────────────────────────────────────
+  setup_motd
 
   # ── Dockge ────────────────────────────────────────────────────────────────
   if [[ ! -f /opt/dockge/compose.yaml ]]; then
