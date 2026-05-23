@@ -305,44 +305,37 @@ function next_ctid() {
 
 function select_storage() {
   # select_storage <content-type> <title>
-  # Sets STORAGE_RESULT to the chosen storage tag.
+  # Sets STORAGE_RESULT to the chosen storage name.
   local CONTENT="$1"
   local TITLE="$2"
+  local -a TAGS=()
   local -a MENU=()
-  local -A STORAGE_MAP=()
-  local COL_WIDTH=0
 
   while read -r TAG TYPE _ TOTAL USED FREE _; do
     [[ -n "$TAG" && -n "$TYPE" ]] || continue
-    local DISPLAY="${TAG} (${TYPE})"
     local FREE_FMT USED_FMT
     FREE_FMT=$(numfmt --to=iec --from-unit=1024 --format "%.1f" <<<"$FREE" 2>/dev/null || echo "${FREE}K")
     USED_FMT=$(numfmt --to=iec --from-unit=1024 --format "%.1f" <<<"$USED" 2>/dev/null || echo "${USED}K")
-    local INFO="Free: ${FREE_FMT}B  Used: ${USED_FMT}B"
-    STORAGE_MAP["$DISPLAY"]="$TAG"
-    MENU+=("$DISPLAY" "$INFO" "OFF")
-    (( ${#DISPLAY} > COL_WIDTH )) && COL_WIDTH=${#DISPLAY}
+    TAGS+=("$TAG")
+    MENU+=("$TAG" "${TYPE} | Free: ${FREE_FMT}B  Used: ${USED_FMT}B" "OFF")
   done < <(pvesm status -content "$CONTENT" 2>/dev/null | awk 'NR>1 && $3=="active"')
 
-  if [[ ${#MENU[@]} -eq 0 ]]; then
+  if [[ ${#TAGS[@]} -eq 0 ]]; then
     die "No active storage found for content type '${CONTENT}'."
   fi
 
   # Auto-pick when there is only one option
-  if [[ $(( ${#MENU[@]} / 3 )) -eq 1 ]]; then
-    STORAGE_RESULT="${STORAGE_MAP[${MENU[0]}]}"
+  if [[ ${#TAGS[@]} -eq 1 ]]; then
+    STORAGE_RESULT="${TAGS[0]}"
     return 0
   fi
 
-  local WIDTH=$(( COL_WIDTH + 42 ))
-  local SELECTED
-  SELECTED=$(whiptail --backtitle "Proxmox VE — Coder LXC Installer" \
+  STORAGE_RESULT=$(whiptail --backtitle "Proxmox VE — Coder LXC Installer" \
     --title "$TITLE" \
     --radiolist "Select a storage pool:\n(Spacebar to select, Enter to confirm)" \
-    16 "$WIDTH" 6 "${MENU[@]}" 3>&1 1>&2 2>&3) || die "Storage selection cancelled."
+    16 70 6 "${MENU[@]}" 3>&1 1>&2 2>&3) || die "Storage selection cancelled."
 
-  SELECTED=$(sed 's/[[:space:]]*$//' <<<"$SELECTED")
-  STORAGE_RESULT="${STORAGE_MAP[$SELECTED]}"
+  STORAGE_RESULT=$(sed 's/[[:space:]]*$//' <<<"$STORAGE_RESULT")
   [[ -z "$STORAGE_RESULT" ]] && die "Invalid storage selection."
 }
 
