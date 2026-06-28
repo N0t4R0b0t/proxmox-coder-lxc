@@ -147,6 +147,7 @@ PROFILE
 function install_coder() {
   local IP
   IP=$(hostname -I | awk '{print $1}')
+  [[ -z "$IP" ]] && die "Could not determine the container IP (hostname -I returned nothing). Refusing to continue, as an empty access URL would make Coder fall back to the try.coder.app tunnel."
 
   if [[ "$(id -u)" -ne 0 ]]; then die "Run as root."; fi
   if [ -e /etc/alpine-release ]; then die "Alpine Linux is not supported."; fi
@@ -201,35 +202,47 @@ https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_C
   msg_ok "Installed Coder v${VERSION}"
 
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
-  local DB_PASS
+  local PG_URL
   if [[ -f /etc/coder.d/coder.env ]] && grep -q "CODER_PG_CONNECTION_URL" /etc/coder.d/coder.env; then
     # Upgrade path: keep existing DB credentials
+    PG_URL=$(grep '^CODER_PG_CONNECTION_URL=' /etc/coder.d/coder.env | cut -d= -f2-)
     msg_ok "Reusing existing PostgreSQL credentials"
   else
     msg_info "Configuring PostgreSQL"
+    local DB_PASS
     DB_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
     systemctl enable -q --now postgresql
     for _ in $(seq 1 10); do pg_isready -q && break; sleep 1; done
     su -c "psql -c \"CREATE USER coder WITH PASSWORD '${DB_PASS}';\"" postgres 2>/dev/null || true
     su -c "psql -c \"CREATE DATABASE coder OWNER coder;\"" postgres 2>/dev/null || true
+    PG_URL="postgresql://coder:${DB_PASS}@localhost/coder?sslmode=disable"
+    msg_ok "Configured PostgreSQL"
+  fi
 
-    # ── System user ────────────────────────────────────────────────────────
-    id -u coder &>/dev/null || useradd --system --create-home --shell /bin/bash coder
-    usermod -aG docker coder
+  # ── System user ────────────────────────────────────────────────────────────
+  id -u coder &>/dev/null || useradd --system --create-home --shell /bin/bash coder
+  usermod -aG docker coder
 
-    # ── Config file ────────────────────────────────────────────────────────
-    mkdir -p /etc/coder.d
-    cat <<EOF >/etc/coder.d/coder.env
+  # ── Config file ─────────────────────────────────────────────────────────────
+  # Always (re)write the network config with the current IP. Setting a valid
+  # CODER_ACCESS_URL is what disables Coder's built-in try.coder.app tunnel —
+  # we never want that reverse proxy. Use cloudflared/your own domain for
+  # external access instead.
+  msg_info "Writing Coder configuration"
+  mkdir -p /etc/coder.d
+  cat <<EOF >/etc/coder.d/coder.env
 # Coder configuration — edit then: systemctl restart coder
-CODER_PG_CONNECTION_URL=postgresql://coder:${DB_PASS}@localhost/coder?sslmode=disable
+CODER_PG_CONNECTION_URL=${PG_URL}
 CODER_HTTP_ADDRESS=0.0.0.0:${CODER_PORT}
 CODER_ACCESS_URL=http://${IP}:${CODER_PORT}
+# try.coder.app dev tunnel is disabled by setting CODER_ACCESS_URL above.
+# For external access, put a reverse proxy (e.g. cloudflared) in front and
+# set CODER_ACCESS_URL to your public https URL, then restart coder.
 # Uncomment for workspace app support:
 # CODER_WILDCARD_ACCESS_URL=*.coder.example.com
 EOF
-    chmod 600 /etc/coder.d/coder.env
-    msg_ok "Configured PostgreSQL"
-  fi
+  chmod 600 /etc/coder.d/coder.env
+  msg_ok "Wrote Coder configuration"
 
   # ── MOTD / shell welcome ──────────────────────────────────────────────────
   setup_motd
